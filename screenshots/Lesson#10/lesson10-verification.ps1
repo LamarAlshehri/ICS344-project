@@ -1,0 +1,76 @@
+# CONFIGURATION
+$API = "https://gfxvwxy0n4.execute-api.eu-north-1.amazonaws.com/dvsa/order"
+
+$TOKEN = "eyJraWQiOiI1bk5mTE5tUXlPNmhWaStGbHBheEkyb09ldUxZMmR2c3h0cDR0OXo1MDFBPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiI5MDJjMzk1Yy1lMGUxLTcwOTQtNGIwNi0zZDkyYjNkNzkwMGIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAuZXUtbm9ydGgtMS5hbWF6b25hd3MuY29tXC9ldS1ub3J0aC0xX0RmMW1HczdOSyIsImNsaWVudF9pZCI6IjcyOG1iZ2RzbmxjZ2tlYXFrMTE4am1obGQ3Iiwib3JpZ2luX2p0aSI6ImI2NjQ3NGFkLWQ2YjctNDVhYy05OTQ2LTRkMDA1ZDZiMjFkZiIsImV2ZW50X2lkIjoiNjlhNGVlMDgtZTJmMi00MDgzLWI2ZDktYTk3Yjc0NDViYTYxIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3NzAxMTE3MCwiZXhwIjoxNzc3MDE4NDk4LCJpYXQiOjE3NzcwMTQ4OTgsImp0aSI6ImI1OGU4MDEwLTBkNjMtNDE0OC1hYzE4LWY4MTE2OWU2ZTYxNyIsInVzZXJuYW1lIjoiOTAyYzM5NWMtZTBlMS03MDk0LTRiMDYtM2Q5MmIzZDc5MDBiIn0.Ix3wYPU7L-wh8n7VN9gkxZNwYCBmPyfFRbEzCeiG0jyjBdwSnINMEldBxb5I679nAs6XnpnZFU73LxwT2etRoEj4u0OpGuOAi4nqu02mya0sUmLj1yMY_DOPqppKporU0XuHnD1QiHo4h20kr5A6LXnVo5Gpknz8xKy9Oe73fIpCUJoGFPuUjVYGT2DzMKQ-WK8LAh-zFc6hyajrGph4lk1e5L2VfvG0vCEjYyOVMER47Iee_1z2WcXxPpmd0jWJMM5lSGn5_a0JMN5anKZYlN6T8tD4TfAMGNDtdOx67FeOUCsFOQSpJEbrYlUNSbDgKtjp2AZgRxcak0RQVWpxIw"
+
+$HEADERS = @{
+    "Authorization" = $TOKEN
+    "Content-Type"  = "application/json"
+}
+
+# HELPER FUNCTION
+function Invoke-Test {
+    param($Label, $Body, $UseAuth = $true)
+
+    Write-Host ""
+    Write-Host ("=" * 60) -ForegroundColor Cyan
+    Write-Host "  $Label" -ForegroundColor Cyan
+    Write-Host ("=" * 60) -ForegroundColor Cyan
+    Write-Host "  Body sent: $Body" -ForegroundColor Gray
+
+    try {
+        if ($UseAuth) {
+            $resp = Invoke-RestMethod -Uri $API -Method POST -Headers $HEADERS -Body $Body
+        } else {
+            $resp = Invoke-RestMethod -Uri $API -Method POST -Headers @{"Content-Type"="application/json"} -Body $Body
+        }
+
+        $json = $resp | ConvertTo-Json -Depth 10
+        Write-Host "  Response (200 OK):" -ForegroundColor Green
+        Write-Host $json
+
+        if ($json -match "stackTrace|errorType|errorMessage|/var/task") {
+            Write-Host ""
+            Write-Host "  *** VULNERABILITY CONFIRMED ***" -ForegroundColor Red
+        }
+    }
+    catch {
+        $statusCode = $_.Exception.Response.StatusCode.value__
+        Write-Host "  Response ($statusCode Error):" -ForegroundColor Yellow
+        Write-Host "  $($_.Exception.Message)"
+
+        try {
+            $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+            $body = $reader.ReadToEnd()
+
+            if ($body) {
+                Write-Host "  Response body: $body"
+
+                if ($body -match "stackTrace|errorType|errorMessage|/var/task") {
+                    Write-Host ""
+                    Write-Host "  *** VULNERABILITY CONFIRMED (ERROR RESPONSE) ***" -ForegroundColor Red
+                }
+            }
+        } catch {}
+    }
+}
+
+# ================================
+# PHASE 2: VERIFICATION
+# ================================
+Write-Host ""
+Write-Host "================ VERIFICATION PHASE =================" -ForegroundColor Green
+
+Write-Host "Run after fixing Lambda." -ForegroundColor Gray
+
+Invoke-Test "Test 1: Empty body {}" '{}'
+Invoke-Test "Test 2: Malformed JSON" 'notjson'
+Invoke-Test "Test 3 [KEY]: Missing order-id" '{"action":"get"}'
+Invoke-Test "Test 4: Cancel without order-id" '{"action":"cancel"}'
+Invoke-Test "Test 5: No Auth header" '{"action":"account"}' $false
+Invoke-Test "Test 6: Null action" '{"action":null}'
+
+Write-Host ""
+
+Write-Host ""
+Write-Host "Script complete." -ForegroundColor Cyan
